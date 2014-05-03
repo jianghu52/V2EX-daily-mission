@@ -215,7 +215,7 @@ class TaskQueueWalker(webapp2.RequestHandler):
         if not html:
             #some thing wrong
             addAppLog(
-                v_user, 0, -1, u'错误：无法读取页面：/mission/daily！', False
+                v_user, 0, 0, u'错误：无法读取页面：/mission/daily！', False
             )
             return
         ret_redeem = self.reRedeem.search(html)
@@ -223,7 +223,7 @@ class TaskQueueWalker(webapp2.RequestHandler):
             if self.SIGN_OK in html:
                 #signed
                 addAppLog(
-                    v_user, 0, -1, u'信息：已登录。', True
+                    v_user, 0, 0, u'信息：已登录。', True
                 )
                 pass
         else:
@@ -233,7 +233,7 @@ class TaskQueueWalker(webapp2.RequestHandler):
                 #err
                 #self.response.out.write('err: open redeem url failed')
                 addAppLog(
-                    v_user, 0, -1, u'错误：无法打开领铜币链接： %s ！' % url_redeem, False
+                    v_user, 0, 0, u'错误：无法打开领铜币链接： %s ！' % url_redeem, False
                 )
                 return
 
@@ -242,13 +242,13 @@ class TaskQueueWalker(webapp2.RequestHandler):
         if not ret_status:
             #no status
             addAppLog(
-                v_user, 0, -1, u'提示：没有连续登录天数的信息，可能登录失败。', True
+                v_user, 0, 0, u'提示：没有连续登录天数的信息，可能登录失败。', True
             )
             pass
         else:
             #update status TODO
             # addAppLog(
-            #     v_user, 0, -1, 'Warn: Status change to xx.', False
+            #     v_user, 0, 0, 'Warn: Status change to xx.', False
             # )
             pass
 
@@ -258,7 +258,7 @@ class TaskQueueWalker(webapp2.RequestHandler):
             if usr.days_last==days:
                 #已经更新了balance数据
                 addAppLog(
-                    v_user, 0, -1, u'信息：已经领过今天的铜币。', True
+                    v_user, 0, 0, u'信息：已经领过今天的铜币。', True
                 )
                 return
 
@@ -266,7 +266,7 @@ class TaskQueueWalker(webapp2.RequestHandler):
         if not html:
             #err to read banlance
             addAppLog(
-                v_user, 0, -1, u'错误: 无法读取页面：/banlance。', False
+                v_user, 0, 0, u'错误: 无法读取页面：/banlance。', False
             )
             return
 
@@ -344,15 +344,15 @@ class MainPageHandler(webapp2.RequestHandler):
 
         html = curl(url=self.URL_SIGNIN, referer='http://www.v2ex.com', cookier=self.c_cookie, opener=self.c_opener)
         if not html:
-            self.response.out.write('无法打开登录页面。')
+            self.response.out.write(u'无法打开登录页面。')
             return False
         ret_signincode = self.reSigninCode.search(html)
         if not ret_signincode:
-            self.response.out.write('暂时不可用，找不到验证码。')
+            self.response.out.write(u'暂时不可用，找不到验证码。')
             return False
         s_code = int(ret_signincode.group(1))
         if s_code==0:
-            self.response.out.write('验证码识别错误。')
+            self.response.out.write(u'验证码识别错误。')
             return False
         data = {
             'u': username,
@@ -363,10 +363,10 @@ class MainPageHandler(webapp2.RequestHandler):
         passcode='awegawgeawegawefawefawg'
         html = curl(url=self.URL_SIGNIN, method='POST', data=data, referer=self.URL_SIGNIN, cookier=self.c_cookie, opener=self.c_opener)
         if not html:
-            self.response.out.write('登录失败')
+            self.response.out.write(u'无法读取登录页面')
             return False
         if '<a href="/member/%s" class="top">%s</a>' % (username, username) not in html:
-            self.response.out.write('已尝试登录，未成功。')
+            self.response.out.write(u'登录失败')
             return False
         return True
 
@@ -404,7 +404,10 @@ class MainPageHandler(webapp2.RequestHandler):
                     #验证已保存的账户和正在改信息的账户是不是同一个，不是的话就拒绝修改
                     usr=Accounts.all().filter('v_user = ', uname).get()
                     if usr.author != users.get_current_user():
-                        self.response.out.write('该用户已经添加！')
+                        self.response.out.write(u'该用户已经添加！')
+                        addAppLog(
+                            usr, 0, 0, u'警告：%s正在试图添加你的V2EX账户, 操作已被取消。' % users.get_current_user(), False
+                        )
                         return
                     usr.v_cookie=v_cookie
                     usr.put()
@@ -416,6 +419,9 @@ class MainPageHandler(webapp2.RequestHandler):
                     usr.v_cookie=v_cookie
                     usr.author = users.get_current_user()
                     usr.put()
+                    addAppLog(
+                        usr, 0, 0, u'信息：添加用户。', True
+                    )
             else:
                 #self.response.out.write('Failed')
                 return
@@ -429,8 +435,16 @@ class MainPageHandler(webapp2.RequestHandler):
                     if usr.enabled==False:
                         usr.v_cookie=None
                     usr.put()
+                    addAppLog(
+                        usr, 0, 0, u'信息：变更用户状态。%s' % u'激活自动签到' if usr.enabled else u'取消自动签到' , True
+                    )
                 elif action=='delete':
+                    addAppLog(
+                        usr, 0, 0, u'信息：删除用户。账户日志也应该删除。', True
+                    )
+                    db.delete(usr.logs)
                     db.delete(usr)
+                    
                 elif action=='log':
                     template_values = {
                         'data' : template.render(TEMPLATE_TR, {'logs': usr.logs.order('date')}),
@@ -448,6 +462,11 @@ class MainPageHandler(webapp2.RequestHandler):
                     self.response.out.write(MSG_ENABLE_OK % uname)
                 except:
                     self.response.out.write(MSG_ENABLE_ER)
+
+                #提示用户其他人正在试图修改他的v2ex账户
+                addAppLog(
+                    usr.get(), 0, 0, u'警告：%s正在试图查看你的日志或修改你的V2EX账户, 操作已被取消。' % users.get_current_user(), False
+                )
                 return
 
         self.response.out.write('OK')
