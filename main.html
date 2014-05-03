@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta content="True" name="HandheldFriendly">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
-    <title>V2EX自动签到</title>
+    <title>V2EX签到</title>
     <link href="//cdn.bootcss.com/bootstrap/3.1.1/css/bootstrap.min.css" rel="stylesheet">
     <style type="text/css">
         body { 
@@ -55,7 +55,7 @@
 </head>
 <body>
     <div class="container">
-        <div><center><h2>V2EX自动签到</h2></center></div>
+        <div><center><h2>V2EX签到</h2></center></div>
         <div><label><h3>{{ LoginAs }}</h3></label>&nbsp;&nbsp;<span><a href="{{ LogoutUrl }}">登出</a></span></div>
         <br>
         <button type="button" class="btn btn-primary" name="new" onclick="startEdit(this);">&nbsp;添加V2EX账号&nbsp;</button>
@@ -86,11 +86,11 @@
                     <td>{{ forloop.counter }}</td>
                     <td>TODO: status</td>
                     <td>{{ usr.v_user }}</td>
-                    <td>{{ usr.date_add|creatime:"8" }}</td>
+                    <td>{{ usr.date_add|date:"Y-m-d H:i:s" }}</td>
                     <td class="text-right">{{ usr.coin_got }}</td>
                     <td class="text-right">{{ usr.coin_count }}</td>
-                    <td class="text-right">{{ usr.coin_all }}</td>
-                    <td>{{ usr.date_last|creatime }}</td>
+                    <td class="text-right">{{ usr.coin_all|floatformat:2 }}</td>
+                    <td>{{ usr.date_last|date:"Y-m-d H:i:s" }}</td>
                     <td class="text-right">{{ usr.coin_last }}</td>
                     <td class="text-right">{{ usr.days_last }}</td>
                     <td class="text-right">{{ usr.days_max }}</td>

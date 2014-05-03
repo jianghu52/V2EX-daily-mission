@@ -4,7 +4,6 @@ import logging
 import webapp2
 import os
 import re
-import time
 import json
 import datetime
 import urllib
@@ -18,8 +17,10 @@ from google.appengine.api import memcache
 from google.appengine.api import users
 from google.appengine.api import taskqueue
 
-from google.appengine.ext.webapp import template
-template.register_template_library('common.templatefilter')
+
+# TZONE_OFFSET_HOURS_V2EX = 8    #v2ex的时间与gae时间差
+TZONE_OFFSET_HOURS_SITE = 8    #本站显示时间与gae时间差
+
 
 TEMPLATE_MAIN = os.path.join(os.path.dirname(__file__), 'main.html')
 TEMPLATE_LOG  = os.path.join(os.path.dirname(__file__), 'log.json')
@@ -32,7 +33,7 @@ class Accounts(db.Model):
     v_user    = db.StringProperty()                         #V2EX用户
     v_cookie  = db.TextProperty()                           #V2EX Cookie，用于登录签到
     author    = db.UserProperty()                           #账户的添加人
-    date_add  = db.DateTimeProperty(auto_now_add=True)      #账户添加日期
+    date_add  = db.DateTimeProperty()                       #账户添加日期
     coin_got  = db.FloatProperty(default=0.0)               #自动签到获得金币数
     coin_count= db.IntegerProperty(default=0)               #成功自动签到次数
     coin_all  = db.FloatProperty(default=0.0)               #金币总数
@@ -45,7 +46,7 @@ class Accounts(db.Model):
 
 class AppLog(db.Model):
     v_user    = db.ReferenceProperty(Accounts, collection_name='logs') #v2ex账户
-    date      = db.DateTimeProperty(auto_now_add=True)      #日志日期
+    date      = db.DateTimeProperty()                       #日志日期
     coin      = db.FloatProperty(default=0.0)               #获得的金币数目
     days      = db.IntegerProperty(default=0)               #当前的连续天数
     memo      = db.StringProperty(default="")               #说明，为v2ex的获得的金币说明
@@ -112,6 +113,25 @@ def curl(url, data=None, method='GET', referer=None, header=None, cookier=None, 
     return ret
 
 
+def getLocalNowTime(hours=TZONE_OFFSET_HOURS_SITE):
+    return datetime.datetime.utcnow()+datetime.timedelta(hours=hours)
+
+
+def addAppLog(v_user, coin=0, days=0, memo=None, result=True):
+    log=AppLog()
+    if type(v_user) == str or type(v_user) == unicode:
+        log.v_user=Accounts.all().filter('v_user = ', v_user).get()
+    else:
+        log.v_user=v_user
+    log.date=getLocalNowTime()
+    log.coin=float(coin)
+    log.days=int(days)
+    log.memo=memo
+    log.result=result
+    log.put()
+    return
+
+
 class TaskCronStartHandler(webapp2.RequestHandler):
     def get(self):
         v_users = Accounts.all().filter('enabled = ', True)
@@ -173,8 +193,8 @@ class TaskQueueWalker(webapp2.RequestHandler):
             )
 
     def redeem(self, html):
-        if url=='':
-            pass
+        # if url=='':
+        pass
 
     def get(self):
         self.error(404)
@@ -194,31 +214,42 @@ class TaskQueueWalker(webapp2.RequestHandler):
         html=curl(self.URL_SIGN, referer='http://www.v2ex.com', cookier=self.c_cookie, opener=self.c_opener)
         if not html:
             #some thing wrong
-            self.response.out.write('err: can\'t open /mission/daily')
+            addAppLog(
+                v_user, 0, -1, u'错误：无法读取页面：/mission/daily！', False
+            )
             return
         ret_redeem = self.reRedeem.search(html)
         if not ret_redeem:
             if self.SIGN_OK in html:
                 #signed
-                self.response.out.write('info: been signed')
+                addAppLog(
+                    v_user, 0, -1, u'信息：已登录。', True
+                )
                 pass
         else:
             url_redeem = ret_redeem.group()
             html=curl('http://www.v2ex.com%s' % url_redeem, referer=self.URL_SIGN, cookier=self.c_cookie, opener=self.c_opener)
             if not html:
                 #err
-                self.response.out.write('err: open redeem url failed')
+                #self.response.out.write('err: open redeem url failed')
+                addAppLog(
+                    v_user, 0, -1, u'错误：无法打开领铜币链接： %s ！' % url_redeem, False
+                )
                 return
 
         #读取连续天数
         ret_status = self.reStatus.search(html)
         if not ret_status:
             #no status
-            self.response.out.write('err: no status')
+            addAppLog(
+                v_user, 0, -1, u'提示：没有连续登录天数的信息，可能登录失败。', True
+            )
             pass
         else:
-            #update status
-            self.response.out.write('info: update status')
+            #update status TODO
+            # addAppLog(
+            #     v_user, 0, -1, 'Warn: Status change to xx.', False
+            # )
             pass
 
         if ret_status:
@@ -226,13 +257,17 @@ class TaskQueueWalker(webapp2.RequestHandler):
             usr = Accounts.all().filter('v_user = ', v_user).get()
             if usr.days_last==days:
                 #已经更新了balance数据
-                self.response.out.write('info: balance have been updated.')
+                addAppLog(
+                    v_user, 0, -1, u'信息：已经领过今天的铜币。', True
+                )
                 return
 
         html=curl(self.URL_BALANCE, referer=self.URL_SIGN, cookier=self.c_cookie, opener=self.c_opener)
         if not html:
             #err to read banlance
-            self.response.out.write('err: can\'t open /banlance')
+            addAppLog(
+                v_user, 0, -1, u'错误: 无法读取页面：/banlance。', False
+            )
             return
 
         ret_balance = self.reRecord.search(html)
@@ -279,13 +314,9 @@ class TaskQueueWalker(webapp2.RequestHandler):
 
             for x in b:
                 #添加日志
-                log=AppLog()
-                log.v_user=usr
-                log.coin=x['coin']
-                log.days=usr.days_last
-                log.memo=x['memo']
-                log.result=True
-                log.put()
+                addAppLog(
+                    usr, x['coin'], usr.days_last, x['memo']
+                )
         return
 
 
@@ -380,6 +411,7 @@ class MainPageHandler(webapp2.RequestHandler):
                 else:
                     #添加账户
                     usr=Accounts(key_name=uname)
+                    usr.date_add = getLocalNowTime()
                     usr.v_user=uname
                     usr.v_cookie=v_cookie
                     usr.author = users.get_current_user()
@@ -413,7 +445,7 @@ class MainPageHandler(webapp2.RequestHandler):
                 MSG_ENABLE_ER = '该用户不存在。'
 
                 try:
-                    self.response.out.write(MSG_ENABLE_OK % v_user)
+                    self.response.out.write(MSG_ENABLE_OK % uname)
                 except:
                     self.response.out.write(MSG_ENABLE_ER)
                 return
