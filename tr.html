@@ -1,0 +1,1 @@
+{% for l in logs %}<tr><td>{{ forloop.counter }}</td><td>{{ l.date|creatime:"8" }}</td><td class="text-right">{{ l.coin }}</td><td class="text-center">{{ l.result }}</td><td class="text-right">{{ l.days }}</td><td>{{ l.memo }}</td></tr>{% endfor %}

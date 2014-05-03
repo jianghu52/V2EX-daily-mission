@@ -1,0 +1,6 @@
+{
+    "data" : "<tbody>{{ data|escapejs }}</tbody>",
+    "prev" : "{{ prev }}",
+    "next" : "{{ next }}",
+    "page" : "{{ page }}"
+}

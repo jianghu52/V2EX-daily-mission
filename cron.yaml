@@ -1,0 +1,5 @@
+cron:
+- description: wake up daily v2ex sign task
+  url: /daily
+  schedule: every day 08:10
+  timezone: Asia/Hong_Kong
