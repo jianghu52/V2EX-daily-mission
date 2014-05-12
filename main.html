@@ -51,6 +51,10 @@
             padding-left: 5%;
             padding-right: 5%; 
         }
+        .table-multi-th-mid{
+            padding-top: 2em !important;
+            padding-bottom: 2em !important;
+        }
     </style>
 </head>
 <body>
@@ -60,23 +64,31 @@
         <br>
         <button type="button" class="btn btn-primary" name="new" onclick="startEdit(this);">&nbsp;添加V2EX账号&nbsp;</button>
         {% if not empty %}
-        <button type="button" class="btn btn-primary" name="manual" onclick="location.href='/manual';">全部重新领取</button>
-        <table class="table table-hover">
+        <button type="button" class="btn btn-primary" name="manual" onclick="location.href='/manual';">全部重新签到</button>
+        <br><br>
+        <table class="table table-hover table-bordered">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>状态</th>
-                    <th>用户名</th>
-                    <th>添加时间</th>
-                    <th class="text-right">签得铜币</th>
-                    <th class="text-right">次数</th>
-                    <th class="text-right">账户余额</th>
-                    <th>上次日期</th>
-                    <th class="text-right">铜币</th>
-                    <th class="text-right">连续天数</th>
-                    <th class="text-right">最高</th>
+                    <th rowspan="2" class="text-center table-multi-th-mid">#</th>
+                    <th rowspan="2" class="text-center table-multi-th-mid">状态</th>
+                    <th rowspan="2" class="text-center table-multi-th-mid">用户名</th>
+                    <th rowspan="2" class="text-center table-multi-th-mid">添加时间</th>
+                    <th colspan="2" class="text-center">自动签到合计</th>
+                    <th rowspan="2" class="text-center table-multi-th-mid">账户余额</th>
+                    <th colspan="2" class="text-center">最后一次签到</th>
+                    <th colspan="2" class="text-center">连续登录</th>
+                    <th colspan="5" class="text-center">操作</th>
+                </tr>
+                <tr>
+                    <th class="text-center">铜币</th>
+                    <th class="text-center">次数</th>
+                    <th class="text-center">时间</th>
+                    <th class="text-center">铜币</th>
+                    <th class="text-center">天数</th>
+                    <th class="text-center">最高</th>
                     <th class="text-center">日志</th>
-                    <th class="text-center">重登录</th>
+                    <th class="text-center">签到</th>
+                    <th class="text-center">登录</th>
                     <th class="text-center">激活</th>
                     <th class="text-center">删除</th>
                 </tr>
@@ -94,7 +106,8 @@
                     <td class="text-right">{{ usr.coin_last }}</td>
                     <td class="text-right">{{ usr.days_last }}</td>
                     <td class="text-right">{{ usr.days_max }}</td>
-                    <td class="text-center"><button type="button" value="{{ usr.v_user }}" name="log" class="btn btn-xs btn-info" onclick="checkLog(this);">查看</button></td></td>
+                    <td class="text-center"><button type="button" value="{{ usr.v_user }}" name="log" class="btn btn-xs btn-info" onclick="checkLog(this);">查看</button></td>
+                    <td class="text-center"><button type="button" value="{{ usr.v_user }}" name="redeem" class="btn btn-xs btn-info" onclick="actionVUser(this);">签到</button></td>
                     <td class="text-center"><button type="button" value="{{ usr.v_user }}" name="edit" class="btn btn-xs btn-success" onclick="startEdit(this);">登录</button></td>
                     <td class="text-center">
                         <button type="button" value="{{ usr.v_user }}" name="enable" class="btn btn-xs btn-warning" onclick="actionVUser(this);">{% if usr.enabled %}取消{% endif %}{% if not usr.enabled %}激活{% endif %}</button>
@@ -141,6 +154,7 @@
                         </div>
 
                         <div id="loading" style="display:none; position:absolute; left:46%;">
+                            <br><br>
                             <img src="/static/loading.gif" />
                         </div>
 
@@ -163,6 +177,10 @@
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
+                            <div class="alert alert-warning fade in" style="display: none">
+                                <a class="close" onclick="$('.alert').hide()">×</a> 
+                                <span id="log-info-text">&nbsp;</span>
+                            </div>
                             <div id="log-loading" style="display:none; position:absolute; left:46%;">
                                 <img src="/static/loading.gif" />
                             </div>
@@ -295,14 +313,14 @@
             },
             dataType: 'json',
             beforeSend: function(XMLHttpRequest){
+                $('.alert').hide();
+                ($("#log tbody")).remove();
+
                 $('#log-loading')[0].style.display = 'block';
                 $('#log-loading').addClass('loading');
             },
             success: function(data, txtStatus){
-                var x=$("#log tbody");
-                x.remove();
-                x=$("#log");
-                x.append(data.data);
+                ($("#log")).append(data.data);
                 logPage=data.page;
                 if(data.prev=='True'){
                     $('#log-page-pre')[0].style.display = 'block';
@@ -324,7 +342,9 @@
                 $('#log-loading').removeClass('loading');
             },
             error: function(data){
-                alert("错误，请重试.");
+                //alert(data.responseText);
+                $("#log-info-text")[0].innerHTML=data.responseText;
+                $(".alert").show();
             }
         });
     }
