@@ -35,3 +35,9 @@ indexes:
   properties:
   - name: v_user
   - name: date
+
+- kind: AppLog
+  properties:
+  - name: v_user
+  - name: date
+    direction: desc
