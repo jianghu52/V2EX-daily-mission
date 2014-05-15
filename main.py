@@ -32,6 +32,7 @@ IS_DEBUG = False
 class Accounts(db.Model):
     v_user    = db.StringProperty()                         #V2EX用户
     v_cookie  = db.TextProperty()                           #V2EX Cookie，用于登录签到
+    status    = db.IntegerProperty()                        #账户状态
     author    = db.UserProperty()                           #账户的添加人
     date_add  = db.DateTimeProperty()                       #账户添加日期
     coin_got  = db.FloatProperty(default=0.0)               #自动签到获得金币数
@@ -184,13 +185,37 @@ class V2exBaseHandler(webapp2.RequestHandler):
     c_cookie = urllib2.HTTPCookieProcessor()
     c_opener = urllib2.build_opener(c_cookie)
     v_user = ''
+    v_status = STATUS_NORMAL
 
     STATUS_COOKIES_EXPIRED = 0
+    STATUS_NEED_RETRY = 1
+    STATUS_DISABLED = 2
+    STATUS_NORMAL =3
+    STATUS_NEED_LOGIN = 4
 
-    ACCOUNT_STATUS = [
-        u'Cookies exp',
+    STATUS_COLOR = [
+        'red',
+
 
     ]
+
+    ACCOUNT_STATUS = [
+        u'Cookies 已过期',
+        u'计划下午重试',
+        u'已取消自动签到',
+        u'正常',
+        u'Cookies %s天后过期'
+    ]
+
+    COOKIE_AUTH_KEYNAME = ['A2', 'auth']
+
+
+    def getStatusCode(self):
+        return self.v_status
+
+    def getStatusName(self):
+        return self.ACCOUNT_STATUS[self.v_status]
+
 
     def importCookie(self, v_cookie):
         a_cookies=json.loads(v_cookie)
@@ -208,6 +233,9 @@ class V2exBaseHandler(webapp2.RequestHandler):
                     rest=None, rfc2109=False
                 )
             )
+            if c['name'] in self.COOKIE_AUTH_KEYNAME:
+                if c['expires']-time.time()<=864000:
+
 
     def exportCookie(self):
         ret = []
@@ -259,6 +287,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
 
     def checkIsLogin(self):
         html = curl(self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
+        if not html: return False
         if self.SIGN_SIGNUP in html: return False
         ret_username = self.reUsername.search(html)
         if ret_username:
@@ -283,9 +312,15 @@ class V2exBaseHandler(webapp2.RequestHandler):
     def doRedeem(self):
         ret = self.checkIsRedeemed()
         html = ''
+        c = 0
         while type(ret) is unicode:
             html = curl(ret, referer=self.URL_REDEEM, cookier=self.c_cookie, opener=self.c_opener)
             ret = self.checkIsRedeemed()
+            c += 1
+            if c>5:
+                ret=False
+                #TODO: change status to STATUS_NEED_RETRY
+                break
 
         if ret==False:
             return False
@@ -323,7 +358,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
                 'memo'    : ret_balance.group(5)
             })
         if ret_balance2:
-            if ret_balance.group(1)==ret_balance2.group(1):
+            if ret_balance.group(1)[:-1]==ret_balance2.group(1)[:-1]:
                 #连续登陆奖励
                 ret_log.append({
                     'date'    : datetime.datetime.strptime(ret_balance2.group(1), '%Y-%m-%d %H:%M:%S'),
@@ -368,9 +403,10 @@ class TaskQueueWalker(V2exBaseHandler):
                     self.v_user, 0, 0, u'提示：没有连续登录天数的信息。', True
                 )
             else:
-                addAppLog(
-                    self.v_user, 0, 0, u'信息：连续登录%s天。' % days, True
-                )
+                # addAppLog(
+                #     self.v_user, 0, 0, u'信息：连续登录%s天。' % days, True
+                # )
+                pass
             logs = self.getBalanceLog()
             if len(logs):
                 #更新用户
