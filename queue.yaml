@@ -2,8 +2,9 @@
 total_storage_limit: 120M
 queue:
 - name: default
-  rate: 20/s
+  rate: 5/s
+  bucket_size: 5
   retry_parameters:
-    min_backoff_seconds: 10
-    max_backoff_seconds: 200
+    min_backoff_seconds: 1800
+    max_backoff_seconds: 18000
     max_doublings: 0
