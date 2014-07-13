@@ -26,13 +26,14 @@ TEMPLATE_MAIN = os.path.join(os.path.dirname(__file__), 'main.html')
 TEMPLATE_LOG  = os.path.join(os.path.dirname(__file__), 'log.json')
 TEMPLATE_TR   = os.path.join(os.path.dirname(__file__), 'tr.html')
 PAGE_404 = '<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1>The resource could not be found.<br /><br /></body></html>'
+PAGE_LOGS_COUNT = 10
 
 IS_DEBUG = False
 
 class Accounts(db.Model):
     v_user    = db.StringProperty()                         #V2EX用户
     v_cookie  = db.TextProperty()                           #V2EX Cookie，用于登录签到
-    status    = db.IntegerProperty()                        #账户状态
+    status    = db.StringProperty()                        #账户状态
     author    = db.UserProperty()                           #账户的添加人
     date_add  = db.DateTimeProperty()                       #账户添加日期
     coin_got  = db.FloatProperty(default=0.0)               #自动签到获得金币数
@@ -159,10 +160,11 @@ class UserStartCronHandler(webapp2.RequestHandler):
 
 class V2exBaseHandler(webapp2.RequestHandler):
     URL_V2EX = u'http://www.v2ex.com'
+    URL_V2EX_IP = u'http://www.v2ex.com/ip'
     URL_REDEEM = u'http://www.v2ex.com/mission/daily'
     URL_BALANCE = u'http://www.v2ex.com/balance'
     URL_SIGNIN = u'http://www.v2ex.com/signin'
-    SIGN_REDEEMED = u'class="icon-ok-sign"'
+    SIGN_REDEEMED = u'"icon-ok-sign"'
     SIGN_SIGNUP = u'<a href="/signup"'
 
     reSigninCode = re.compile(ur'<input\stype="hidden"\svalue="(\d+)"\sname="once"')
@@ -185,36 +187,16 @@ class V2exBaseHandler(webapp2.RequestHandler):
     c_cookie = urllib2.HTTPCookieProcessor()
     c_opener = urllib2.build_opener(c_cookie)
     v_user = ''
-    v_status = STATUS_NORMAL
 
-    STATUS_COOKIES_EXPIRED = 0
-    STATUS_NEED_RETRY = 1
-    STATUS_DISABLED = 2
-    STATUS_NORMAL =3
-    STATUS_NEED_LOGIN = 4
-
-    STATUS_COLOR = [
-        'red',
-
-
-    ]
-
-    ACCOUNT_STATUS = [
-        u'Cookies 已过期',
-        u'计划下午重试',
-        u'已取消自动签到',
-        u'正常',
-        u'Cookies %s天后过期'
-    ]
 
     COOKIE_AUTH_KEYNAME = ['A2', 'auth']
 
 
-    def getStatusCode(self):
-        return self.v_status
+    def getAuthCookieStandDays(self):
+        pass
 
-    def getStatusName(self):
-        return self.ACCOUNT_STATUS[self.v_status]
+    def setStatus(self, text):
+        pass
 
 
     def importCookie(self, v_cookie):
@@ -233,9 +215,11 @@ class V2exBaseHandler(webapp2.RequestHandler):
                     rest=None, rfc2109=False
                 )
             )
-            if c['name'] in self.COOKIE_AUTH_KEYNAME:
-                if c['expires']-time.time()<=864000:
-
+            # if c['name'] in self.COOKIE_AUTH_KEYNAME:
+            #     d= c['expires']-time.time()
+            #     if d<=864000:
+            #         self.setStatus(u'Cookie 将于 %s 天后过期' % round(d/3600,2))
+            # # todo: 检测并增加cookie过期状态
 
     def exportCookie(self):
         ret = []
@@ -255,7 +239,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
         if IS_DEBUG:
             return True
 
-        html = curl(url=self.URL_SIGNIN, referer='http://www.v2ex.com', cookier=self.c_cookie, opener=self.c_opener)
+        html = curl(url=self.URL_SIGNIN, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
         if not html:
             self.response.out.write(u'无法打开登录页面。')
             return False
@@ -286,20 +270,25 @@ class V2exBaseHandler(webapp2.RequestHandler):
 
 
     def checkIsLogin(self):
-        html = curl(self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
+        html = curl(self.URL_V2EX_IP, cookier=self.c_cookie, opener=self.c_opener)
         if not html: return False
         if self.SIGN_SIGNUP in html: return False
         ret_username = self.reUsername.search(html)
         if ret_username:
             self.v_user = ret_username.group(1)
+
+            logging.info('login, got username: %s' % self.v_user)
+
             return self.v_user
         else:
+            logging.error('login, but cant get username, maybe a bug.')
             return False
 
 
     def checkIsRedeemed(self):
         html = curl(self.URL_REDEEM, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
         if self.SIGN_REDEEMED in html:
+            logging.info('%s: redeemed' % self.v_user)
             return True
         else:
             ret_redeem = self.reRedeem.search(html)
@@ -317,9 +306,12 @@ class V2exBaseHandler(webapp2.RequestHandler):
             html = curl(ret, referer=self.URL_REDEEM, cookier=self.c_cookie, opener=self.c_opener)
             ret = self.checkIsRedeemed()
             c += 1
+            if c>1:
+                logging.info('%s: trying: %s' % (self.v_user, c))
             if c>5:
                 ret=False
                 #TODO: change status to STATUS_NEED_RETRY
+                logging.info('%s: tried 6 times, cant redeem' % self.v_user)
                 break
 
         if ret==False:
@@ -330,7 +322,9 @@ class V2exBaseHandler(webapp2.RequestHandler):
                 html=curl(self.URL_REDEEM, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
             ret_status = self.reStatus.search(html)
             if ret_status:
+                logging.info('%s: found checkin days' % self.v_user)
                 return int(ret_status.group(2))
+            logging.info('%s: not found checkin days' % self.v_user)
             return True
 
 
@@ -350,15 +344,16 @@ class V2exBaseHandler(webapp2.RequestHandler):
             ret_balance2 = None
 
         if ret_balance:
-            ret_log.append({
-                'date'    : datetime.datetime.strptime(ret_balance.group(1), '%Y-%m-%d %H:%M:%S'),
-                'type'    : ret_balance.group(2),
-                'coin'    : float(ret_balance.group(3)),
-                'balance' : float(ret_balance.group(4)),
-                'memo'    : ret_balance.group(5)
-            })
+            if ret_balance.group(5)[0] in '0123456789':
+                ret_log.append({
+                    'date'    : datetime.datetime.strptime(ret_balance.group(1), '%Y-%m-%d %H:%M:%S'),
+                    'type'    : ret_balance.group(2),
+                    'coin'    : float(ret_balance.group(3)),
+                    'balance' : float(ret_balance.group(4)),
+                    'memo'    : ret_balance.group(5)
+                })
         if ret_balance2:
-            if ret_balance.group(1)[:-1]==ret_balance2.group(1)[:-1]:
+            if ret_balance.group(1)[:-2]==ret_balance2.group(1)[:-2]:
                 #连续登陆奖励
                 ret_log.append({
                     'date'    : datetime.datetime.strptime(ret_balance2.group(1), '%Y-%m-%d %H:%M:%S'),
@@ -382,23 +377,28 @@ class TaskQueueWalker(V2exBaseHandler):
 
         if not v_user and not v_cookie:
             return
+
         self.c_cookie = urllib2.HTTPCookieProcessor()
         self.importCookie(v_cookie)
         self.c_opener = urllib2.build_opener(self.c_cookie)
 
         if self.checkIsLogin()==False:
+            logging.info('%s: login failed' % v_user)
+            # addAppLog(self.v_user,....) 改为 addAppLog(v_user,....),当checkIsLogin没有登录或cookies失效的时候 self.v_user是没有设置的.
             addAppLog(
-                self.v_user, 0, 0, u'错误：登录失败，可能是保存的 cookie 已失效，请重新登录获取 cookie！', False
+                v_user, 0, 0, u'错误：登录失败，可能是保存的 cookie 已失效，请重新登录获取 cookie！', False
             )
             return
 
         days = self.doRedeem()
         if days==False:
+            logging.info('%s: checkin failed' % v_user)
             addAppLog(
                 self.v_user, 0, 0, u'错误：签到失败！', False
             )
         else:
             if type(days)==True:
+                logging.info('%s: checkin days not found' % v_user)
                 addAppLog(
                     self.v_user, 0, 0, u'提示：没有连续登录天数的信息。', True
                 )
@@ -424,6 +424,8 @@ class TaskQueueWalker(V2exBaseHandler):
                     if len(logs)==2:
                         usr.coin_got+=logs[1]['coin']
                         usr.coin_last+=logs[1]['coin']
+                    #更新cookies
+                    usr.v_cookie=unicode(self.exportCookie())
                     usr.put()
 
                     for x in logs:
@@ -431,6 +433,11 @@ class TaskQueueWalker(V2exBaseHandler):
                         addAppLog(
                             usr, x['coin'], usr.days_last, x['memo']
                         )
+            else:
+                logging.info('%s: no balance' % v_user)
+                addAppLog(
+                    self.v_user, 0, 0, u'错误：没有拉取到铜币日志。', False
+                )
         return
 
 
@@ -493,7 +500,7 @@ class MainPageHandler(V2exBaseHandler):
                 #self.response.out.write('Failed')
                 return
         if action in ['enable','delete','log','redeem']:
-            uname=self.request.get('u')
+            uname = self.request.get('u')
             usr=Accounts.all().filter('author = ', users.get_current_user()).filter('v_user = ', uname)
             if usr.count(1):
                 usr=usr.get()
@@ -513,11 +520,18 @@ class MainPageHandler(V2exBaseHandler):
                     db.delete(usr)
                     
                 elif action=='log':
+                    page=self.request.get('page')
+                    page= int(page) if page.isdigit() else 1
+
+                    logs=usr.logs
+                    logs.order('-date')
+                    logs=logs.fetch(offset=((page-1)*PAGE_LOGS_COUNT), limit=PAGE_LOGS_COUNT+1)
+
                     template_values = {
-                        'data' : template.render(TEMPLATE_TR, {'logs': usr.logs.order('-date')}),
-                        'prev' : False,
-                        'next' : False,
-                        'page' : 1
+                        'data' : template.render(TEMPLATE_TR, {'start': ((page-1)*PAGE_LOGS_COUNT), 'logs': logs}),
+                        'prev' : page>1,
+                        'next' : len(logs)>PAGE_LOGS_COUNT,
+                        'page' : page
                     }
                     self.response.out.write(template.render(TEMPLATE_LOG, template_values))
                     return
