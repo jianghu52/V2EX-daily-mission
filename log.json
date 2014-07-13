@@ -1,6 +1,8 @@
 {
     "data" : "<tbody>{{ data|escapejs }}</tbody>",
+    {% autoescape on %}
     "prev" : "{{ prev }}",
     "next" : "{{ next }}",
-    "page" : "{{ page }}"
+    "page" : {{ page }}
+    {% endautoescape %}
 }
