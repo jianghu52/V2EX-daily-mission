@@ -28,6 +28,8 @@ TEMPLATE_TR   = os.path.join(os.path.dirname(__file__), 'tr.html')
 PAGE_404 = '<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1>The resource could not be found.<br /><br /></body></html>'
 PAGE_LOGS_COUNT = 10
 
+debug_page = ''
+
 IS_DEBUG = False
 
 class Accounts(db.Model):
@@ -164,7 +166,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
     URL_REDEEM = u'http://www.v2ex.com/mission/daily'
     URL_BALANCE = u'http://www.v2ex.com/balance'
     URL_SIGNIN = u'http://www.v2ex.com/signin'
-    SIGN_REDEEMED = u'"icon-ok-sign"'
+    SIGN_REDEEMED = u'ok-sign"'
     SIGN_SIGNUP = u'<a href="/signup"'
 
     reSigninCode = re.compile(ur'<input\stype="hidden"\svalue="(\d+)"\sname="once"')
@@ -173,14 +175,14 @@ class V2exBaseHandler(webapp2.RequestHandler):
 
     # /balance页面，匹配两次，取前两次的记录，第二次为连续登录奖励（判断）
     # [0][0]：日期，[0][1]：类型，[0][2]：数额，[0][3]：余额，[0][4]：描述
-    reRecord = re.compile(  ur'class="gray">(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})</small>.+?' +\
+    reRecord = re.compile(  ur'class="gray">(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[\+\-\s\d:]+</small>.+?' +\
                             ur'class="d">(.+?)</td>.+?' +\
                             ur'<strong>([\d\.]+)</strong>.+?' +\
                             ur'right;">([\d\.]+)</td>.+?'+\
                             ur'class="gray">(.+?)</span></td>', re.DOTALL)
 
     # /mission/daily页面 连续天数 [1]：连续天数
-    reStatus = re.compile(ur'</div>[\n\s\t]+<div\sclass="cell">(.+?)(\d+)(.+?)</div>')
+    reStatus = re.compile(ur'</div>[\n\s\t]+<div\sclass="cell">.+?(\d+).+?</div>')
 
     reUsername = re.compile(ur'<a\shref="/member/([a-zA-Z0-9]+)"')
 
@@ -287,6 +289,10 @@ class V2exBaseHandler(webapp2.RequestHandler):
 
     def checkIsRedeemed(self):
         html = curl(self.URL_REDEEM, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
+        global debug_page, IS_DEBUG
+        if IS_DEBUG:
+            debug_page = html
+
         if self.SIGN_REDEEMED in html:
             logging.info('%s: redeemed' % self.v_user)
             return True
@@ -313,7 +319,6 @@ class V2exBaseHandler(webapp2.RequestHandler):
                 #TODO: change status to STATUS_NEED_RETRY
                 logging.info('%s: tried 6 times, cant redeem' % self.v_user)
                 break
-
         if ret==False:
             return False
         else:
@@ -323,7 +328,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
             ret_status = self.reStatus.search(html)
             if ret_status:
                 logging.info('%s: found checkin days' % self.v_user)
-                return int(ret_status.group(2))
+                return long(ret_status.group(1))
             logging.info('%s: not found checkin days' % self.v_user)
             return True
 
@@ -403,14 +408,22 @@ class TaskQueueWalker(V2exBaseHandler):
                     self.v_user, 0, 0, u'提示：没有连续登录天数的信息。', True
                 )
             else:
-                # addAppLog(
-                #     self.v_user, 0, 0, u'信息：连续登录%s天。' % days, True
-                # )
-                pass
+                addAppLog(
+                    self.v_user, 0, 0, u'信息：连续登录 %s 天。' % days, True
+                )
+                #pass
             logs = self.getBalanceLog()
             if len(logs):
                 #更新用户
                 usr = Accounts.all().filter('v_user = ', v_user).get()
+
+                #更新最高天数
+                if type(days) is long:
+                    usr.days_last=days
+                    usr.days_max=max(usr.days_max, usr.days_last)
+                #更新cookies
+                usr.v_cookie=unicode(self.exportCookie())
+
                 if usr.date_last!=logs[0]['date']:
                     #未保存的日志才会写入数据库
                     usr.coin_got+=logs[0]['coin']
@@ -418,21 +431,17 @@ class TaskQueueWalker(V2exBaseHandler):
                     usr.coin_last=logs[0]['coin']
                     usr.date_last=logs[0]['date']
                     usr.coin_count+=1
-                    if type(days) is int:
-                        usr.days_last=days
-                        usr.days_max=max(usr.days_max, usr.days_last)
+                    
                     if len(logs)==2:
                         usr.coin_got+=logs[1]['coin']
                         usr.coin_last+=logs[1]['coin']
-                    #更新cookies
-                    usr.v_cookie=unicode(self.exportCookie())
-                    usr.put()
 
                     for x in logs:
                         #添加日志
                         addAppLog(
                             usr, x['coin'], usr.days_last, x['memo']
                         )
+                usr.put()
             else:
                 logging.info('%s: no balance' % v_user)
                 addAppLog(
@@ -557,12 +566,19 @@ class MainPageHandler(V2exBaseHandler):
         self.response.out.write('OK')
         return
 
+class DebugHandler(V2exBaseHandler):
+    def get(self):
+        global debug_page
+        self.response.out.write(debug_page)
+        return
+
 
 app = webapp2.WSGIApplication(
     [
         ('/daily', TaskCronStartHandler),
         ('/manual', UserStartCronHandler),
         ('/runtask', TaskQueueWalker),
+        ('/dbg', DebugHandler),
         ('/', MainPageHandler)
     ], debug=IS_DEBUG
 )
