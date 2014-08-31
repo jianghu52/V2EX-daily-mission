@@ -10,6 +10,7 @@ import urllib
 import urllib2
 import StringIO
 import gzip
+import time
 from cookielib import Cookie
 from google.appengine.ext.webapp import template
 from google.appengine.ext import db
@@ -35,7 +36,7 @@ IS_DEBUG = False
 class Accounts(db.Model):
     v_user    = db.StringProperty()                         #V2EX用户
     v_cookie  = db.TextProperty()                           #V2EX Cookie，用于登录签到
-    status    = db.StringProperty()                        #账户状态
+    status    = db.StringProperty()                         #账户状态
     author    = db.UserProperty()                           #账户的添加人
     date_add  = db.DateTimeProperty()                       #账户添加日期
     coin_got  = db.FloatProperty(default=0.0)               #自动签到获得金币数
@@ -288,6 +289,7 @@ class V2exBaseHandler(webapp2.RequestHandler):
 
 
     def checkIsRedeemed(self):
+        html = curl(self.URL_V2EX, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
         html = curl(self.URL_REDEEM, referer=self.URL_V2EX, cookier=self.c_cookie, opener=self.c_opener)
         global debug_page, IS_DEBUG
         if IS_DEBUG:
@@ -308,12 +310,12 @@ class V2exBaseHandler(webapp2.RequestHandler):
         ret = self.checkIsRedeemed()
         html = ''
         c = 0
-        while type(ret) is unicode:
+        while type(ret) is unicode or type(ret) is str:
+            time.sleep(0.5)
+            c += 1
+            logging.info('%s: trying %s' % (c, ret))
             html = curl(ret, referer=self.URL_REDEEM, cookier=self.c_cookie, opener=self.c_opener)
             ret = self.checkIsRedeemed()
-            c += 1
-            if c>1:
-                logging.info('%s: trying: %s' % (self.v_user, c))
             if c>5:
                 ret=False
                 #TODO: change status to STATUS_NEED_RETRY
