@@ -1,4 +1,4 @@
-[V2EX](http://www.v2ex.com)自动[签到](www.v2ex.com/mission/daily)
+[V2EX](http://www.v2ex.com)自动[签到](http://www.v2ex.com/mission/daily)
 
 - 支持多用户
 - 默认 +08:00 每天早 08:10 开始签到
